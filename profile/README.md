@@ -7,10 +7,10 @@ Agents to think aloud with. LINA is the first of them. They carry your shared hi
 
 | Repository | What it is |
 | --- | --- |
-| [lina](https://github.com/lina-system/lina) | LINA Core, the terminal UI, Node and the client protocol (Go) |
+| [lina](https://github.com/lina-system/lina) | LINA: agents that know you and follow through |
 | [lina-app](https://github.com/lina-system/lina-app) | The desktop and mobile app, Mac launcher and menu bar |
 | [lina-os](https://github.com/lina-system/lina-os) | An optional Linux distribution built around LINA (exploration) |
 
-> In development. No runnable release yet. Everything here is open source under the Apache License 2.0.
+> In development. No runnable release yet. Available under the Sustainable Use License.
 
-[Manifesto](https://github.com/lina-system/lina/blob/dev/MANIFESTO.md) · [Security](https://github.com/lina-system/lina/blob/dev/SECURITY.md) · [Contributing](https://github.com/lina-system/lina/blob/dev/CONTRIBUTING.md)
+[Manifesto](https://github.com/lina-system/lina/blob/main/MANIFESTO.md) · [Security](https://github.com/lina-system/.github/blob/main/SECURITY.md) · [Policy](https://github.com/lina-system/.github/blob/main/POLICY.md)

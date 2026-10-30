@@ -8,7 +8,7 @@ A worker is a coding tool working on a repository.
 
 ## 1. Branches and pull requests
 
-Each repository has one integration branch: its default branch, `dev` for lina and `main` elsewhere. Pull requests target it.
+Each repository has one integration branch: its default branch, `main`. Pull requests target it.
 
 Use a short-lived branch from the latest integration branch with one coherent change. Keep unrelated refactoring and behavior changes separate. Reviewability and safe rollback matter more than line count. Coordinate edits that overlap work on another branch.
 
@@ -35,7 +35,7 @@ Obtain one automated review pass on the current head and address blocking findin
 
 ## 3. Verification shape (CI)
 
-Each repository names, in its CONTRIBUTING, one required gate check and the local command that runs it, for example lina's `foundation` check, run locally with `node scripts/foundation.mjs`. Run the gate locally before opening a pull request. The gate passes only when every check it selected passed for that exact head.
+Each repository names, in its CONTRIBUTING, one required gate check and the local command that runs it. Run the gate locally before opening a pull request. The gate passes only when every check it selected passed for that exact head.
 
 Every repository follows the same shape:
 
@@ -54,7 +54,7 @@ For runnable changes, show evidence from the affected usage path, not only unit 
 - The integration branch only moves forward.
 - Bring a branch up to date by merging the integration branch into it when needed, resolve conflicts on the branch, and rerun verification.
 - An authorized merger (see Authority) merges the pull request once its current head has a green gate and a clean review.
-- Where a repository runs an integration script or lander, that path is the way in: lina's `scripts/integrate.mjs`, and devflow's lander once it is enabled.
+- Where a repository runs an integration script or lander, that path is the way in.
 
 An integration script or lander applies the same conditions. It verifies the merge candidate before it advances the integration branch. When the merge conflicts or the gate fails, the integration branch stays where it was and the script or lander reports why. It never force-pushes.
 
@@ -71,7 +71,7 @@ A review by a worker or another tool is supporting evidence; it grants no integr
 These settings are enforced on the code repositories (lina, lina-app, devflow, lina-os and lina-world):
 
 - Merge commits only: squash and rebase merging are disabled.
-- The default and release branches (`main`, and lina's `dev`) refuse deletion and force push.
+- The default and release branches (`main`) refuse deletion and force push.
 - Release tags are immutable.
 - Secret scanning push protection is on.
 
