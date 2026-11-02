@@ -49,6 +49,11 @@
   color: f9d0c4
   description: "Size: larger, several areas, or a new subsystem or scaffold"
 
+# Used by POLICY.md section 4: one open issue per area and sprint.
+- name: follow-up
+  color: c5def5
+  description: "Review findings to do later, bundled per area and sprint"
+
 # Referenced by the pull request template.
 - name: no-changelog
   color: cfd3d7
