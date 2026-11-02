@@ -1,0 +1,59 @@
+# Labels shared by lina, lina-app and lina-os.
+# Each repository's labels workflow reads this file from the main branch once a day
+# (and on manual runs), creates missing labels and corrects color and description.
+# Labels not listed here are reported, never deleted.
+
+# Kind. Issue forms set it; the workflow adds it from the title prefix when missing.
+- name: bug
+  color: d73a4a
+  description: "Kind: something does not work as designed (fix:)"
+- name: enhancement
+  color: a2eeef
+  description: "Kind: a new capability or a change in behaviour (feat:)"
+- name: documentation
+  color: 0075ca
+  description: "Kind: documentation only (docs:)"
+- name: research
+  color: d876e3
+  description: "Kind: find out before building; ends in a note and filed issues (research:)"
+- name: maintenance
+  color: bfd4f2
+  description: "Kind: refactor, tests, CI, build or other upkeep (chore:, refactor:, test:, ci:, build:)"
+
+# Runner. One per issue; parent issues and the Roadmap carry none.
+- name: dsh
+  color: 0e8a16
+  description: "Runner: DeepSeek Harness - tiny code change (1-2 files, about 50 lines, no design call)"
+- name: grok-cursor
+  color: 1d76db
+  description: "Runner: grok or cursor-agent (same model) - medium single-area code change"
+- name: agy
+  color: fbca04
+  description: "Runner: Antigravity - docs, wording, translation, PR text review"
+- name: omo
+  color: 5319e7
+  description: "Runner: omo - large, multi-area, device, measurement or research work"
+
+# Size, from the Size line in Context.
+- name: size/S
+  color: c2e0c6
+  description: "Size: about a day"
+- name: size/M
+  color: fef2c0
+  description: "Size: a few days"
+- name: size/L
+  color: f9d0c4
+  description: "Size: a week or more"
+
+# Dependency state, computed from the Depends on line.
+- name: ready
+  color: 0e8a16
+  description: "Every issue in Depends on is closed"
+- name: blocked
+  color: b60205
+  description: "Waits on an open issue in Depends on"
+
+# Referenced by the pull request template.
+- name: no-changelog
+  color: cfd3d7
+  description: "Changes nothing users get; no CHANGELOG.md line needed"
