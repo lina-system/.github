@@ -1,7 +1,7 @@
 # Labels shared by lina, lina-app and lina-os.
-# Each repository's labels workflow reads this file from the main branch once a day
-# (and on manual runs), creates missing labels and corrects color and description.
-# Labels not listed here are reported, never deleted.
+# .github/workflows/issue-labels.yml in this repository creates missing labels and corrects
+# color and description once a day and on manual runs. Labels not listed here are reported,
+# never deleted.
 
 # Kind. Issue forms set it; the workflow adds it from the title prefix when missing.
 - name: bug
@@ -20,38 +20,34 @@
   color: bfd4f2
   description: "Kind: refactor, tests, CI, build or other upkeep (chore:, refactor:, test:, ci:, build:)"
 
-# Runner. One per issue; parent issues and the Roadmap carry none.
+# Runner. Judged by scripts/issue_labels.py; change it with a `Runner: <name> — <reason>` line.
+# Parent issues and the Roadmap carry none.
 - name: dsh
   color: 0e8a16
-  description: "Runner: DeepSeek Harness - tiny code change (1-2 files, about 50 lines, no design call)"
+  description: "Runner: DeepSeek Harness - size S code change in one area"
 - name: grok-cursor
   color: 1d76db
-  description: "Runner: grok or cursor-agent (same model) - medium single-area code change"
+  description: "Runner: grok or cursor-agent (same model) - size M code change in one area"
 - name: agy
   color: fbca04
-  description: "Runner: Antigravity - docs, wording, translation, PR text review"
+  description: "Runner: Antigravity - documentation only, no design decision"
 - name: omo
   color: 5319e7
-  description: "Runner: omo - large, multi-area, device, measurement or research work"
+  description: "Runner: omo - size L, risky area, research, device, real data, measurement or open design"
+- name: needs-routing
+  color: e99695
+  description: "No runner yet: lina-next writes the Size and Runner lines, then the workflow labels it"
 
-# Size, from the Size line in Context.
+# Size, from the Size line in Context (scaffold work is always L).
 - name: size/S
   color: c2e0c6
-  description: "Size: about a day"
+  description: "Size: 1-2 files, about 100 lines, one area"
 - name: size/M
   color: fef2c0
-  description: "Size: a few days"
+  description: "Size: 3-8 files or a few hundred lines, one area"
 - name: size/L
   color: f9d0c4
-  description: "Size: a week or more"
-
-# Dependency state, computed from the Depends on line.
-- name: ready
-  color: 0e8a16
-  description: "Every issue in Depends on is closed"
-- name: blocked
-  color: b60205
-  description: "Waits on an open issue in Depends on"
+  description: "Size: larger, several areas, or a new subsystem or scaffold"
 
 # Referenced by the pull request template.
 - name: no-changelog

@@ -1,10 +1,27 @@
 #!/usr/bin/env python3
-"""Keep lina-system issue labels in line with labels.yml and the issue Context lines.
+"""Judge size and runner for lina-system issues and keep their labels in line.
 
-  issue_labels.py sync   [--labels-file PATH] [--dry-run]
-  issue_labels.py issues [--issue N] [--all-comments] [--dry-run]
+  issue_labels.py sync   [--repo OWNER/NAME] [--labels-file PATH] [--dry-run]
+  issue_labels.py issues [--repo OWNER/NAME] [--issue N] [--dry-run]
 
-Reads GITHUB_REPOSITORY and GITHUB_TOKEN from the environment.
+The repository comes from --repo or GITHUB_REPOSITORY, the token from GITHUB_TOKEN.
+This file is the only copy of the rules; lina, lina-app and lina-os call it through
+.github/workflows/issue-labels.yml in lina-system/.github.
+
+Runner, first rule that matches:
+  1. A `Runner: <dsh|grok-cursor|agy|omo> — <reason>` line. Without a reason it is ignored.
+  2. Research, device, real-data or measurement work -> omo.
+  3. Size L -> omo.
+  4. Risky area, even at S or M -> omo: title scope in RISKY_SCOPES, or the body is about
+     security, credentials or personal data.
+  5. Unclear -> omo: no checkable Done when, or a design decision is still open.
+  6. Documentation only, no design decision -> agy.
+  7. S -> dsh, M -> grok-cursor.
+  8. Otherwise -> needs-routing. lina-next writes Size: and Runner: lines and the next run labels it.
+
+Size: S is 1-2 files, about 100 lines, one area; M is 3-8 files or a few hundred lines,
+one area; L is larger, several areas, or a new subsystem or scaffold. The Size line is
+used as written, except that scaffold work is always L.
 """
 
 import argparse
@@ -14,12 +31,17 @@ import re
 import sys
 import urllib.error
 import urllib.request
+from dataclasses import dataclass, field
+from pathlib import Path
 
 API = "https://api.github.com"
-LABELS_URL = "https://raw.githubusercontent.com/lina-system/.github/main/labels.yml"
+LABELS_FILE = Path(__file__).resolve().parent.parent / "labels.yml"
 RUNNERS = ("dsh", "grok-cursor", "agy", "omo")
-SIZES = {"S": "size/S", "M": "size/M", "L": "size/L"}
-KIND_BY_PREFIX = {
+SIZES = ("S", "M", "L")
+SIZE_LABELS = {size: f"size/{size}" for size in SIZES}
+NEEDS_ROUTING = "needs-routing"
+RETIRED = ("ready", "blocked")  # GitHub's own issue dependencies replace these.
+KIND_BY_TYPE = {
     "feat": "enhancement",
     "fix": "bug",
     "docs": "documentation",
@@ -30,47 +52,162 @@ KIND_BY_PREFIX = {
     "ci": "maintenance",
     "build": "maintenance",
 }
-KINDS = set(KIND_BY_PREFIX.values())
-READY, BLOCKED = "ready", "blocked"
-MARKER = "<!-- lina-labels:runners -->"
+KINDS = set(KIND_BY_TYPE.values())
+# After the GitHub Copilot coding agent guidance: keep sensitive, production-critical
+# and cross-cutting work with the agent that can run and check it end to end.
+RISKY_SCOPES = {
+    "store", "install", "migrate", "config", "service", "models",
+    "auth", "secrets", "ci", "merge", "release", "fleet",
+}
+DESIGN_SCOPES = {"design", "architecture", "adr", "rfc"}
+MARKER = "<!-- lina-labels:runner -->"
 
-DEPENDS_RE = re.compile(r"\bDepends on:[ \t]*([^\n]*)", re.IGNORECASE)
-REF_RE = re.compile(r"(?:([\w.-]+/)?([\w.-]+))?#(\d+)")
+TITLE_RE = re.compile(r"^\s*([a-z]+)(?:\(([^)]*)\))?!?:", re.IGNORECASE)
 SIZE_RE = re.compile(r"\bSize:[ \t]*([SML])\b")
-RUNNER_RE = re.compile(r"\bRunner:[ \t]*([\w-]+)", re.IGNORECASE)
-PREFIX_RE = re.compile(r"^\s*([a-z]+)(?:\([^)]*\))?!?:", re.IGNORECASE)
+RUNNER_RE = re.compile(
+    r"\bRunner:[ \t]*(dsh|grok-cursor|agy|omo)[ \t]*(?:—|–|--?|:)[ \t]*(\S[^\n]*)",
+    re.IGNORECASE,
+)
+HEADING_RE = re.compile(r"^#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$", re.MULTILINE)
+SCAFFOLD_RE = re.compile(r"\b(scaffold\w*|skeleton|new subsystem)\b|뼈대|새 하위 시스템", re.IGNORECASE)
+MEASURE_RE = re.compile(
+    r"\b(measur\w*|benchmark\w*|real data|live data|production data|"
+    r"on (?:a|the) (?:real |physical )?device|physical device|real device|work devices?|"
+    r"each device|every device|real task|inventory)\b|측정|실데이터|실기기",
+    re.IGNORECASE,
+)
+SENSITIVE_RE = re.compile(
+    r"\b(security|credentials?|secrets?|passwords?|private keys?|api keys?|"
+    r"personal (?:data|information)|privacy|pii)\b|보안|자격 ?증명|개인 ?정보",
+    re.IGNORECASE,
+)
+NEGATION_RE = re.compile(r"\b(no|not|never|without)\b", re.IGNORECASE)
+NEGATION_WORDS = 4
+OPEN_DESIGN_RE = re.compile(
+    r"\b(tbd|open questions?|undecided|to be decided|decision needed)\b|미정|결정 필요",
+    re.IGNORECASE,
+)
+SENTENCE_RE = re.compile(r"[^.;!?\n]+")
 
 
-def parse_depends(body, repo):
-    """Return the issues named on the Depends on line as (owner/repo, number), or None without the line."""
-    match = DEPENDS_RE.search(body or "")
+@dataclass
+class Judgment:
+    size: str | None
+    runner: str | None  # None means needs-routing.
+    reason: str
+
+
+@dataclass
+class Plan:
+    judgment: Judgment | None  # None for parents, the Roadmap and closed issues.
+    add: set = field(default_factory=set)
+    remove: set = field(default_factory=set)
+    old_runners: list = field(default_factory=list)  # Runner labels replaced by the judgment.
+
+
+def parse_title(title):
+    """Return (type, scopes) from a Conventional Commit title; type is None without a prefix."""
+    match = TITLE_RE.match(title or "")
     if not match:
-        return None
-    text = re.split(r"\.(?:\s|$)|\b(?:Size|Runner):", match.group(1))[0]
-    owner = repo.split("/")[0]
-    refs = []
-    for ref_owner, ref_repo, number in REF_RE.findall(text):
-        target = repo
-        if ref_repo:
-            target = f"{ref_owner.rstrip('/') or owner}/{ref_repo}"
-        refs.append((target, int(number)))
-    return refs
+        return None, set()
+    scopes = {s.strip().lower() for s in re.split(r"[,/ ]+", match.group(2) or "") if s.strip()}
+    return match.group(1).lower(), scopes
 
 
 def parse_size(body):
     match = SIZE_RE.search(body or "")
-    return SIZES[match.group(1)] if match else None
+    return match.group(1) if match else None
 
 
 def parse_runner(body):
+    """Return (runner, reason) from a Runner line that gives a reason, else None."""
     match = RUNNER_RE.search(body or "")
-    name = match.group(1).lower() if match else None
-    return name if name in RUNNERS else None
+    if not match:
+        return None
+    return match.group(1).lower(), match.group(2).strip()
 
 
-def kind_for_title(title):
-    match = PREFIX_RE.match(title or "")
-    return KIND_BY_PREFIX.get(match.group(1).lower()) if match else None
+def section(body, name):
+    """Return the text under the heading `name`, or None when there is no such heading."""
+    headings = list(HEADING_RE.finditer(body or ""))
+    for i, heading in enumerate(headings):
+        if heading.group(1).strip().lower() == name.lower():
+            end = headings[i + 1].start() if i + 1 < len(headings) else len(body)
+            return body[heading.end():end]
+    return None
+
+
+def has_done_when(body):
+    text = section(body, "Done when")
+    if text is None:
+        return False
+    for line in text.splitlines():
+        item = re.sub(r"^\s*(?:[-*+]|\d+\.)\s*(?:\[[ xX]\]\s*)?", "", line)
+        if re.search(r"\w", item):
+            return True
+    return False
+
+
+def mentions(pattern, text):
+    """Return the first match of pattern that is not negated, else None.
+
+    A match is negated when its sentence opens with no/not/never/without ("No dates or
+    secrets") or one of those words stands at most NEGATION_WORDS words before it.
+    """
+    for sentence in SENTENCE_RE.findall(text or ""):
+        match = pattern.search(sentence)
+        if not match:
+            continue
+        before = re.findall(r"[\w'-]+", sentence[:match.start()])
+        opens = bool(before) and NEGATION_RE.fullmatch(before[0])
+        near = any(NEGATION_RE.fullmatch(word) for word in before[-NEGATION_WORDS:])
+        if not (opens or near):
+            return match.group(0)
+    return None
+
+
+def judge_size(title, body):
+    found = SCAFFOLD_RE.search(title or "") or SCAFFOLD_RE.search(section(body, "Summary") or "")
+    if found:
+        return "L", f"scaffold or new subsystem ({found.group(0)})"
+    size = parse_size(body)
+    return (size, f"Size: {size}") if size else (None, "no Size line")
+
+
+def judge(title, body):
+    body = body or ""
+    kind, scopes = parse_title(title)
+    size, size_reason = judge_size(title, body)
+
+    override = parse_runner(body)
+    if override:
+        return Judgment(size, override[0], f"Runner line: {override[1]}")
+    if kind in ("research", "qa"):
+        return Judgment(size, "omo", f"{kind} work")
+    measured = mentions(MEASURE_RE, f"{title}\n{body}")
+    if measured:
+        return Judgment(size, "omo", f"device, real data or measurement ({measured})")
+    if size == "L":
+        return Judgment(size, "omo", f"size L: {size_reason}")
+    risky = sorted(scopes & RISKY_SCOPES)
+    if risky:
+        return Judgment(size, "omo", f"risky scope ({', '.join(risky)})")
+    sensitive = mentions(SENSITIVE_RE, body)
+    if sensitive:
+        return Judgment(size, "omo", f"security, credentials or personal data ({sensitive})")
+    if not has_done_when(body):
+        return Judgment(size, "omo", "no checkable Done when")
+    design = sorted(scopes & DESIGN_SCOPES)
+    open_design = mentions(OPEN_DESIGN_RE, body)
+    if design or open_design:
+        return Judgment(size, "omo", f"design decision open ({', '.join(design) or open_design})")
+    if kind == "docs":
+        return Judgment(size, "agy", "documentation only")
+    if size == "S":
+        return Judgment(size, "dsh", "size S")
+    if size == "M":
+        return Judgment(size, "grok-cursor", "size M")
+    return Judgment(size, None, f"needs routing: {size_reason}")
 
 
 def is_parent_or_roadmap(issue):
@@ -78,69 +215,60 @@ def is_parent_or_roadmap(issue):
     return sub.get("total", 0) > 0 or (issue.get("title") or "").strip().lower().startswith("roadmap")
 
 
-def plan_issue(issue, repo, closed):
-    """Decide label changes for one issue.
-
-    closed(owner_repo, number) -> True when that issue is closed.
-    Returns (add, remove, runners) where runners lists the runner labels when there are two or more,
-    an empty list when the warning should be cleared, and None when runners are not handled.
-    """
+def plan_issue(issue):
     labels = {label["name"] for label in issue.get("labels", [])}
-    body = issue.get("body") or ""
-    add, remove = set(), set()
-    exempt = is_parent_or_roadmap(issue)
-
+    plan = Plan(judgment=None)
+    plan.remove |= labels & set(RETIRED)
     if issue.get("state") == "closed":
-        remove |= labels & {READY, BLOCKED}
-    else:
-        deps = parse_depends(body, repo)
-        if deps is not None:
-            state = READY if all(closed(r, n) for r, n in deps) else BLOCKED
-            add.add(state)
-            remove.add(BLOCKED if state == READY else READY)
+        plan.remove |= labels & {NEEDS_ROUTING}
+        return finish(plan, labels)
 
-    kind = kind_for_title(issue.get("title"))
+    kind = KIND_BY_TYPE.get(parse_title(issue.get("title"))[0] or "")
     if kind and not labels & KINDS:
-        add.add(kind)
+        plan.add.add(kind)
+    if is_parent_or_roadmap(issue):
+        plan.remove |= labels & (set(RUNNERS) | {NEEDS_ROUTING})
+        return finish(plan, labels)
 
-    size = parse_size(body)
-    if size and not labels & set(SIZES.values()):
-        add.add(size)
-
-    runners = None
-    if not exempt:
-        runner = parse_runner(body)
-        if runner and not labels & set(RUNNERS):
-            add.add(runner)
-        if issue.get("state") != "closed":
-            present = sorted((labels | add) & set(RUNNERS))
-            runners = present if len(present) > 1 else []
-
-    return add - labels, remove & labels, runners
+    judgment = judge(issue.get("title"), issue.get("body"))
+    plan.judgment = judgment
+    if judgment.size:
+        plan.add.add(SIZE_LABELS[judgment.size])
+        plan.remove |= labels & (set(SIZE_LABELS.values()) - {SIZE_LABELS[judgment.size]})
+    want = {judgment.runner} if judgment.runner else {NEEDS_ROUTING}
+    plan.add |= want
+    plan.remove |= labels & ((set(RUNNERS) | {NEEDS_ROUTING}) - want)
+    current = sorted(labels & set(RUNNERS))
+    if current and set(current) != (want & set(RUNNERS)):
+        plan.old_runners = current
+    return finish(plan, labels)
 
 
-def warning_body(runners):
-    names = ", ".join(f"`{name}`" for name in runners)
+def finish(plan, labels):
+    plan.add -= labels
+    plan.remove &= labels
+    return plan
+
+
+def comment_body(old_runners, judgment):
+    old = ", ".join(f"`{name}`" for name in old_runners)
+    if judgment.runner:
+        head = f"Runner label set by the routing rules: `{judgment.runner}` (was {old})."
+    else:
+        head = f"Runner label removed (was {old}): the routing rules could not decide, so this issue is `{NEEDS_ROUTING}`."
     return (
-        f"{MARKER}\nThis issue has {len(runners)} runner labels ({names}). "
-        "Keep exactly one: the runner that will do the work."
+        f"{MARKER}\n{head}\nReason: {judgment.reason}.\n\n"
+        "To choose another runner, write `Runner: <dsh|grok-cursor|agy|omo> — <reason>` in Context; "
+        "a label changed by hand is put back on the next run. "
+        "Rules: https://github.com/lina-system/.github/blob/main/scripts/issue_labels.py"
     )
 
 
-def cleared_body():
-    return f"{MARKER}\nResolved: this issue now has at most one runner label."
-
-
-def plan_comment(existing, runners):
-    """Return ('create'|'update'|None, body) for the runner warning; existing is the marked comment or None."""
-    if runners is None:
+def plan_comment(existing, plan):
+    """Return ('create'|'update'|None, body); existing is the marked comment or None."""
+    if not plan.old_runners or plan.judgment is None:
         return None, None
-    if runners:
-        body = warning_body(runners)
-    elif existing:
-        body = cleared_body()
-    else:
-        return None, None
+    body = comment_body(plan.old_runners, plan.judgment)
     if existing is None:
         return "create", body
     return ("update", body) if existing["body"] != body else (None, None)
@@ -169,9 +297,6 @@ class GitHub:
         self.dry_run = dry_run
 
     def request(self, method, path, data=None):
-        if method != "GET" and self.dry_run:
-            print(f"dry-run: {method} {path} {json.dumps(data) if data else ''}")
-            return None
         url = path if path.startswith("http") else API + path
         req = urllib.request.Request(url, method=method, data=json.dumps(data).encode() if data else None)
         req.add_header("Accept", "application/vnd.github+json")
@@ -184,9 +309,6 @@ class GitHub:
         nxt = re.search(r'<([^>]+)>;\s*rel="next"', link)
         return (json.loads(text) if text else None), (nxt.group(1) if nxt else None)
 
-    def get(self, path):
-        return self.request("GET", path)[0]
-
     def get_all(self, path):
         items, url = [], path
         while url:
@@ -195,23 +317,25 @@ class GitHub:
         return items
 
     def write(self, method, path, data=None):
-        self.request(method, path, data)
+        if not self.dry_run:
+            self.request(method, path, data)
 
 
 def quote(name):
     return urllib.request.quote(name, safe="")
 
 
+def summary(text):
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if path:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(text)
+
+
 def run_sync(gh, repo, labels_file):
     import yaml
 
-    if labels_file:
-        with open(labels_file, encoding="utf-8") as handle:
-            text = handle.read()
-    else:
-        with urllib.request.urlopen(LABELS_URL) as resp:
-            text = resp.read().decode()
-    wanted = yaml.safe_load(text)
+    wanted = yaml.safe_load(Path(labels_file).read_text(encoding="utf-8"))
     current = gh.get_all(f"/repos/{repo}/labels?per_page=100")
     create, update, extra = plan_definitions(wanted, current)
     for label in create:
@@ -222,63 +346,67 @@ def run_sync(gh, repo, labels_file):
         gh.write("PATCH", f"/repos/{repo}/labels/{quote(label['old'])}",
                  {"new_name": label["name"], "color": label["color"], "description": label["description"]})
     print("not in labels.yml (kept): " + (", ".join(extra) or "none"))
-    summary = os.environ.get("GITHUB_STEP_SUMMARY")
-    if summary:
-        with open(summary, "a", encoding="utf-8") as handle:
-            handle.write(f"## Labels\n\nCreated {len(create)}, updated {len(update)}.\n\n"
-                         f"Not in labels.yml (kept): {', '.join(extra) or 'none'}\n")
+    summary(f"## Labels\n\nCreated {len(create)}, updated {len(update)}.\n\n"
+            f"Not in labels.yml (kept): {', '.join(extra) or 'none'}\n\n")
 
 
-def run_issues(gh, repo, only, all_comments):
-    issues = [i for i in gh.get_all(f"/repos/{repo}/issues?state=all&per_page=100") if "pull_request" not in i]
-    states = {(repo, i["number"]): i["state"] for i in issues}
+def cell(names):
+    return ", ".join(sorted(names)) or "-"
 
-    def closed(target, number):
-        if (target, number) not in states:
-            try:
-                states[(target, number)] = gh.get(f"/repos/{target}/issues/{number}")["state"]
-            except urllib.error.HTTPError as err:
-                print(f"warning: cannot read {target}#{number} ({err.code}); counted as open")
-                states[(target, number)] = "unknown"
-        return states[(target, number)] == "closed"
 
-    for issue in issues:
+def run_issues(gh, repo, only):
+    if only:
+        issues = [gh.request("GET", f"/repos/{repo}/issues/{only}")[0]]
+    else:
+        issues = gh.get_all(f"/repos/{repo}/issues?state=open&per_page=100")
+    issues = [i for i in issues if "pull_request" not in i]
+    rows = ["| Issue | Labels now | Labels after | Reason |", "| --- | --- | --- | --- |"]
+    for issue in sorted(issues, key=lambda i: i["number"]):
         number = issue["number"]
-        add, remove, runners = plan_issue(issue, repo, closed)
-        for name in sorted(add):
-            print(f"#{number} add {name}")
-        if add:
-            gh.write("POST", f"/repos/{repo}/issues/{number}/labels", {"labels": sorted(add)})
-        for name in sorted(remove):
+        plan = plan_issue(issue)
+        labels = {label["name"] for label in issue.get("labels", [])}
+        after = (labels | plan.add) - plan.remove
+        reason = plan.judgment.reason if plan.judgment else ("closed" if issue.get("state") == "closed" else "parent or Roadmap")
+        mark = "" if after == labels else " (changed)"
+        rows.append(f"| {repo.split('/')[1]}#{number}{mark} | {cell(labels)} | {cell(after)} | {reason} |")
+        if plan.add:
+            print(f"#{number} add {cell(plan.add)}")
+            gh.write("POST", f"/repos/{repo}/issues/{number}/labels", {"labels": sorted(plan.add)})
+        for name in sorted(plan.remove):
             print(f"#{number} remove {name}")
             gh.write("DELETE", f"/repos/{repo}/issues/{number}/labels/{quote(name)}")
-        if runners is None or not (runners or all_comments or number == only):
+        if not plan.old_runners:
             continue
         comments = gh.get_all(f"/repos/{repo}/issues/{number}/comments?per_page=100")
         existing = next((c for c in comments if MARKER in (c.get("body") or "")), None)
-        action, body = plan_comment(existing, runners)
+        action, body = plan_comment(existing, plan)
         if action == "create":
-            print(f"#{number} warn runners {', '.join(runners)}")
+            print(f"#{number} comment runner {cell(plan.old_runners)} -> {plan.judgment.runner or NEEDS_ROUTING}")
             gh.write("POST", f"/repos/{repo}/issues/{number}/comments", {"body": body})
         elif action == "update":
             print(f"#{number} update runner comment")
             gh.write("PATCH", f"/repos/{repo}/issues/comments/{existing['id']}", {"body": body})
+    table = "\n".join(rows) + "\n"
+    if gh.dry_run:
+        print(table)
+    summary(f"## Issues{' (dry run)' if gh.dry_run else ''}\n\n{table}\n")
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("mode", choices=["sync", "issues"])
-    parser.add_argument("--labels-file")
+    parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY"))
+    parser.add_argument("--labels-file", default=str(LABELS_FILE))
     parser.add_argument("--issue", type=int)
-    parser.add_argument("--all-comments", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
-    repo = os.environ["GITHUB_REPOSITORY"]
+    if not args.repo:
+        parser.error("--repo or GITHUB_REPOSITORY is required")
     gh = GitHub(os.environ.get("GITHUB_TOKEN"), args.dry_run)
     if args.mode == "sync":
-        run_sync(gh, repo, args.labels_file)
+        run_sync(gh, args.repo, args.labels_file)
     else:
-        run_issues(gh, repo, args.issue, args.all_comments)
+        run_issues(gh, args.repo, args.issue)
 
 
 if __name__ == "__main__":
