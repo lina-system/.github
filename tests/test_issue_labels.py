@@ -58,6 +58,10 @@ JUDGE_CASES = [
     ("risky scope in a list", "fix(api, auth): x", body("- Size: S"), "S", "omo"),
     ("credentials in body", "fix(home): x", body("- Size: S", summary="Move the API keys into the keychain."), "S", "omo"),
     ("negated secrets is not risky", "fix(home): x", body("- Size: S", summary="Logs carry no secrets."), "S", "dsh"),
+    ("a negated list stays negated", "fix(home): x",
+     body("- Size: S", summary="No dates, machine names or secrets in the output."), "S", "dsh"),
+    ("a later keyword after a negated one still counts", "fix(home): x",
+     body("- Size: S", summary="Logs contain no secrets, but credentials must be rotated."), "S", "omo"),
     ("far negation still counts as risky (lina#59)", "fix(memory): x",
      body("- Size: S", summary="The wizard does not catch this error, so setup aborts before credentials are set."),
      "S", "omo"),
@@ -144,3 +148,11 @@ def test_definitions_create_update_and_keep_extra():
     assert [c["name"] for c in create] == ["needs-routing"]
     assert [(u["old"], u["name"]) for u in update] == [("bug", "Bug")]
     assert extra == ["ready"]
+
+
+def test_research_label_without_title_prefix_goes_to_omo():
+    text = body("- Size: S")
+    assert il.judge("Compare two parsers", text).runner == "dsh"
+    assert il.judge("Compare two parsers", text, {"research"}).runner == "omo"
+    plan = il.plan_issue(issue("Compare two parsers", text, labels=("research",)))
+    assert "omo" in plan.add and "dsh" not in plan.add

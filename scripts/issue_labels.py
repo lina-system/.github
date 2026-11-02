@@ -83,6 +83,7 @@ SENSITIVE_RE = re.compile(
 )
 NEGATION_RE = re.compile(r"\b(no|not|never|without)\b", re.IGNORECASE)
 NEGATION_WORDS = 4
+CLAUSE_BREAK_RE = re.compile(r"\b(?:but|however|yet|although|though)\b", re.IGNORECASE)
 OPEN_DESIGN_RE = re.compile(
     r"\b(tbd|open questions?|undecided|to be decided|decision needed)\b|미정|결정 필요",
     re.IGNORECASE,
@@ -155,14 +156,17 @@ def mentions(pattern, text):
     secrets") or one of those words stands at most NEGATION_WORDS words before it.
     """
     for sentence in SENTENCE_RE.findall(text or ""):
-        match = pattern.search(sentence)
-        if not match:
-            continue
-        before = re.findall(r"[\w'-]+", sentence[:match.start()])
-        opens = bool(before) and NEGATION_RE.fullmatch(before[0])
-        near = any(NEGATION_RE.fullmatch(word) for word in before[-NEGATION_WORDS:])
-        if not (opens or near):
-            return match.group(0)
+        for match in pattern.finditer(sentence):
+            before = re.findall(r"[\w'-]+", sentence[:match.start()])
+            opens = bool(before) and NEGATION_RE.fullmatch(before[0])
+            # A negation stops at a contrast word: in "no secrets, but credentials ..." the second word counts.
+            # A list stays under one negation: "No dates, machine names or secrets".
+            clause = CLAUSE_BREAK_RE.split(sentence[:match.start()])[-1]
+            near = any(NEGATION_RE.fullmatch(word) for word in re.findall(r"[\w'-]+", clause)[-NEGATION_WORDS:])
+            if CLAUSE_BREAK_RE.search(sentence[:match.start()]) and not NEGATION_RE.search(clause):
+                opens = False
+            if not (opens or near):
+                return match.group(0)
     return None
 
 
@@ -174,9 +178,11 @@ def judge_size(title, body):
     return (size, f"Size: {size}") if size else (None, "no Size line")
 
 
-def judge(title, body):
+def judge(title, body, labels=()):
     body = body or ""
     kind, scopes = parse_title(title)
+    # A form can set the kind by label alone (the research form adds `research`, no title prefix).
+    kind = kind or next((name for name in ("research", "qa") if name in labels), None)
     size, size_reason = judge_size(title, body)
 
     override = parse_runner(body)
@@ -230,7 +236,7 @@ def plan_issue(issue):
         plan.remove |= labels & (set(RUNNERS) | {NEEDS_ROUTING})
         return finish(plan, labels)
 
-    judgment = judge(issue.get("title"), issue.get("body"))
+    judgment = judge(issue.get("title"), issue.get("body"), labels)
     plan.judgment = judgment
     if judgment.size:
         plan.add.add(SIZE_LABELS[judgment.size])
