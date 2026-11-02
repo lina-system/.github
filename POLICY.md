@@ -89,7 +89,7 @@ These settings are enforced on lina, lina-app and lina-os:
 - Branches are deleted after merge.
 - Release tags are immutable.
 - Secret scanning and push protection are on.
-- The labels this policy uses exist: `follow-up`, `no-changelog`.
+- The labels this policy and the repositories' merge gates use exist: `follow-up`, `no-changelog`, `dev-red-fix`, `dev-red-approved`, `no-issue`, `ui`.
 
 ## 10. Changing this policy
 
