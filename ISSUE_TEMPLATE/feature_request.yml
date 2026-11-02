@@ -22,7 +22,7 @@ body:
     id: context
     attributes:
       label: Context
-      description: "One line each. Depends on: issues that must close first (#n, or other-repo#n), or none. Size: S (about a day), M (a few days) or L (a week or more). Runner: dsh (tiny code change), grok-cursor (medium single-area change), agy (docs and wording) or omo (large, multi-area, device or research work); leave it empty on a parent issue. Add Part of #n and any links that help."
+      description: "One line each. Depends on: issues that must close first (#n, or other-repo#n), or none. Size: S (1-2 files, about 100 lines, one area), M (3-8 files or a few hundred lines, one area) or L (larger, several areas, or a new subsystem or scaffold). The runner label is set from Size and the rules in lina-system/.github; add Runner: <dsh|grok-cursor|agy|omo> — <reason> only to choose another. Add Part of #n and any links that help."
       value: |
         - Depends on: none
         - Size:
