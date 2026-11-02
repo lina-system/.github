@@ -58,3 +58,17 @@
 - name: no-changelog
   color: cfd3d7
   description: "Changes nothing users get; no CHANGELOG.md line needed"
+
+# Used by the merge gates and procedures of the repositories (lina docs/delivery.md, lina-app#16).
+- name: dev-red-fix
+  color: b60205
+  description: "Fixes a check that is red on dev; the only kind of PR that merges while dev is red"
+- name: dev-red-approved
+  color: d93f0b
+  description: "Owner approved merging while dev stays red; set by the owner only"
+- name: no-issue
+  color: ededed
+  description: "A typo or one-line CI fix that needs no linked issue"
+- name: ui
+  color: c5def5
+  description: "Changes what people see; gets a browser QA run against the feature map"
