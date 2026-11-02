@@ -6,22 +6,26 @@ body:
     id: summary
     attributes:
       label: Summary
-      description: What happened, and what should have happened.
-    validations:
-      required: true
-  - type: textarea
-    id: reproduction
-    attributes:
-      label: Reproduction
-      description: Steps, input and environment (commit, OS, worker). Captures for screen problems.
+      description: "What happened and what should have happened, with the steps, input and environment (commit, OS) that reproduce it. Attach captures for screen problems."
     validations:
       required: true
   - type: textarea
     id: done
     attributes:
       label: Done when
-      description: The checks that prove it is fixed.
+      description: The observable checks that close this issue.
       value: |
-        - [ ]
+        -
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: "One line each. Depends on: issues that must close first (#n, or other-repo#n), or none. Size: S (about a day), M (a few days) or L (a week or more). Runner: dsh (tiny code change), grok-cursor (medium single-area change), agy (docs and wording) or omo (large, multi-area, device or research work); leave it empty on a parent issue. Add Part of #n and any links that help."
+      value: |
+        - Depends on: none
+        - Size:
+        - Runner:
     validations:
       required: true
