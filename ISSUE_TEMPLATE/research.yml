@@ -3,24 +3,31 @@ description: Find out before building; ends in a note and filed issues.
 labels: [research]
 body:
   - type: textarea
-    id: question
+    id: summary
     attributes:
-      label: Question
-      description: What must be decided, and why now.
+      label: Summary
+      description: "What must be decided, why now, and what to read or measure. Record versions and dates."
     validations:
       required: true
-  - type: textarea
-    id: sources
-    attributes:
-      label: Sources and method
-      description: What to read or measure. Record versions and dates.
   - type: textarea
     id: done
     attributes:
       label: Done when
+      description: The observable checks that close this issue.
       value: |
-        - [ ] Note with sources and numbers.
-        - [ ] Decision recorded in the design docs.
-        - [ ] Implementation issues filed with Depends on.
+        - Note with sources and numbers.
+        - Decision recorded in the design docs.
+        - Implementation issues filed with Depends on.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: "One line each. Depends on: issues that must close first (#n, or other-repo#n), or none. Size: S (1-2 files, about 100 lines, one area), M (3-8 files or a few hundred lines, one area) or L (larger, several areas, or a new subsystem or scaffold). The runner label is set from Size and the rules in lina-system/.github; add Runner: <dsh|grok-cursor|agy|omo> — <reason> only to choose another. Add Part of #n and any links that help."
+      value: |
+        - Depends on: none
+        - Size:
+        - Runner:
     validations:
       required: true

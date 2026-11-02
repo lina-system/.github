@@ -6,22 +6,26 @@ body:
     id: summary
     attributes:
       label: Summary
-      description: What happened, and what should have happened.
-    validations:
-      required: true
-  - type: textarea
-    id: reproduction
-    attributes:
-      label: Reproduction
-      description: Steps, input and environment (commit, OS, worker). Captures for screen problems.
+      description: "What happened and what should have happened, with the steps, input and environment (commit, OS) that reproduce it. Attach captures for screen problems."
     validations:
       required: true
   - type: textarea
     id: done
     attributes:
       label: Done when
-      description: The checks that prove it is fixed.
+      description: The observable checks that close this issue.
       value: |
-        - [ ]
+        -
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: "One line each. Depends on: issues that must close first (#n, or other-repo#n), or none. Size: S (1-2 files, about 100 lines, one area), M (3-8 files or a few hundred lines, one area) or L (larger, several areas, or a new subsystem or scaffold). The runner label is set from Size and the rules in lina-system/.github; add Runner: <dsh|grok-cursor|agy|omo> — <reason> only to choose another. Add Part of #n and any links that help."
+      value: |
+        - Depends on: none
+        - Size:
+        - Runner:
     validations:
       required: true

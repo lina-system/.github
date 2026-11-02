@@ -1,0 +1,55 @@
+# Labels shared by lina, lina-app and lina-os.
+# .github/workflows/issue-labels.yml in this repository creates missing labels and corrects
+# color and description once a day and on manual runs. Labels not listed here are reported,
+# never deleted.
+
+# Kind. Issue forms set it; the workflow adds it from the title prefix when missing.
+- name: bug
+  color: d73a4a
+  description: "Kind: something does not work as designed (fix:)"
+- name: enhancement
+  color: a2eeef
+  description: "Kind: a new capability or a change in behaviour (feat:)"
+- name: documentation
+  color: 0075ca
+  description: "Kind: documentation only (docs:)"
+- name: research
+  color: d876e3
+  description: "Kind: find out before building; ends in a note and filed issues (research:)"
+- name: maintenance
+  color: bfd4f2
+  description: "Kind: refactor, tests, CI, build or other upkeep (chore:, refactor:, test:, ci:, build:)"
+
+# Runner. Judged by scripts/issue_labels.py; change it with a `Runner: <name> — <reason>` line.
+# Parent issues and the Roadmap carry none.
+- name: dsh
+  color: 0e8a16
+  description: "Runner: DeepSeek Harness - size S code change in one area"
+- name: grok-cursor
+  color: 1d76db
+  description: "Runner: grok or cursor-agent (same model) - size M code change in one area"
+- name: agy
+  color: fbca04
+  description: "Runner: Antigravity - documentation only, no design decision"
+- name: omo
+  color: 5319e7
+  description: "Runner: omo - size L, risky area, research, device, real data, measurement or open design"
+- name: needs-routing
+  color: e99695
+  description: "No runner yet: lina-next writes the Size and Runner lines, then the workflow labels it"
+
+# Size, from the Size line in Context (scaffold work is always L).
+- name: size/S
+  color: c2e0c6
+  description: "Size: 1-2 files, about 100 lines, one area"
+- name: size/M
+  color: fef2c0
+  description: "Size: 3-8 files or a few hundred lines, one area"
+- name: size/L
+  color: f9d0c4
+  description: "Size: larger, several areas, or a new subsystem or scaffold"
+
+# Referenced by the pull request template.
+- name: no-changelog
+  color: cfd3d7
+  description: "Changes nothing users get; no CHANGELOG.md line needed"
