@@ -76,7 +76,8 @@ MARKER = "<!-- lina-labels:runner -->"
 TITLE_RE = re.compile(r"^\s*([a-z]+)(?:\(([^)]*)\))?!?:", re.IGNORECASE)
 SIZE_RE = re.compile(r"\bSize:[ \t]*([SML])\b")
 RUNNER_RE = re.compile(
-    r"\bRunner:[ \t]*(dsh|grok-cursor|agy|omo-opus|omo-astra|omo)[ \t]*(?:—|–|--?|:)[ \t]*(\S[^\n]*)",
+    # (?![\w-]): the old `omo` must not match the start of omo-opus or omo-astra and take the rest as a reason.
+    r"\bRunner:[ \t]*(dsh|grok-cursor|agy|omo-opus|omo-astra|omo)(?![\w-])[ \t]*(?:—|–|--?|:)[ \t]*(\S[^\n]*)",
     re.IGNORECASE,
 )
 HEADING_RE = re.compile(r"^#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$", re.MULTILINE)
