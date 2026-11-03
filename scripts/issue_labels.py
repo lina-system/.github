@@ -8,16 +8,25 @@ The repository comes from --repo or GITHUB_REPOSITORY, the token from GITHUB_TOK
 This file is the only copy of the rules; lina, lina-app and lina-os call it through
 .github/workflows/issue-labels.yml in lina-system/.github.
 
+omo runs with one of two main models. omo-opus (Opus 5.5 medium) is the default: research,
+planning, design comparison, documents and screen copy, work across areas or repositories,
+and results people read. omo-astra (GPT-6 astra high) takes one narrow, deep task whose
+answer a test can check; omo describes that profile as "Obsessive focus on one hard task"
+and "NOT RECOMMENDED FOR WRITING OR EVERYDAY WORK". When unsure, omo-opus.
+
 Runner, first rule that matches:
-  1. A `Runner: <dsh|grok-cursor|agy|omo> — <reason>` line. Without a reason it is ignored.
-  2. Research, device, real-data or measurement work -> omo.
-  3. Size L -> omo.
-  4. Risky area, even at S or M -> omo: title scope in RISKY_SCOPES, or the body is about
-     security, credentials or personal data.
-  5. Unclear -> omo: no checkable Done when, or a design decision is still open.
-  6. Documentation only, no design decision -> agy.
-  7. S -> dsh, M -> grok-cursor.
-  8. Otherwise -> needs-routing. lina-next writes Size: and Runner: lines and the next run labels it.
+  1. A `Runner: <dsh|grok-cursor|agy|omo-opus|omo-astra> — <reason>` line. Without a reason it
+     is ignored. The old `omo` is read as omo-opus.
+  2. omo-opus: research work; device, real-data or measurement work; documentation only at
+     size L; three or more title scopes; no checkable Done when; a design decision still
+     open; a title scope in OPUS_SCOPES.
+  3. omo-astra: a title scope in ASTRA_SCOPES; a migration (the title moves or migrates
+     something into a new place); a fix with a reproduction (a failure rate like "failed in
+     3 of 62 runs", or flaky); a fix or perf at size M or L with one title scope.
+  4. omo-opus: the body is about security, credentials or personal data; size L.
+  5. Documentation only, no design decision -> agy.
+  6. S -> dsh, M -> grok-cursor.
+  7. Otherwise -> needs-routing. lina-next writes Size: and Runner: lines and the next run labels it.
 
 Size: S is 1-2 files, about 100 lines, one area; M is 3-8 files or a few hundred lines,
 one area; L is larger, several areas, or a new subsystem or scaffold. The Size line is
@@ -36,7 +45,8 @@ from pathlib import Path
 
 API = "https://api.github.com"
 LABELS_FILE = Path(__file__).resolve().parent.parent / "labels.yml"
-RUNNERS = ("dsh", "grok-cursor", "agy", "omo")
+RUNNERS = ("dsh", "grok-cursor", "agy", "omo-opus", "omo-astra")
+LEGACY_RUNNERS = {"omo": "omo-opus"}  # Still defined in labels.yml, never added; replaced when found.
 SIZES = ("S", "M", "L")
 SIZE_LABELS = {size: f"size/{size}" for size in SIZES}
 NEEDS_ROUTING = "needs-routing"
@@ -55,17 +65,19 @@ KIND_BY_TYPE = {
 KINDS = set(KIND_BY_TYPE.values())
 # After the GitHub Copilot coding agent guidance: keep sensitive, production-critical
 # and cross-cutting work with the agent that can run and check it end to end.
-RISKY_SCOPES = {
-    "store", "install", "migrate", "config", "service", "models",
-    "auth", "secrets", "ci", "merge", "release", "fleet",
-}
+# Risky areas that touch machines, settings and people go to omo-opus; those with a
+# contract a test can hold go to omo-astra. A scope in neither is judged by the other rules.
+OPUS_SCOPES = {"install", "config", "service", "release", "fleet", "secrets", "models"}
+ASTRA_SCOPES = {"store", "migrate", "auth", "merge", "ci"}
+MANY_SCOPES = 3
 DESIGN_SCOPES = {"design", "architecture", "adr", "rfc"}
 MARKER = "<!-- lina-labels:runner -->"
 
 TITLE_RE = re.compile(r"^\s*([a-z]+)(?:\(([^)]*)\))?!?:", re.IGNORECASE)
 SIZE_RE = re.compile(r"\bSize:[ \t]*([SML])\b")
 RUNNER_RE = re.compile(
-    r"\bRunner:[ \t]*(dsh|grok-cursor|agy|omo)[ \t]*(?:—|–|--?|:)[ \t]*(\S[^\n]*)",
+    # (?![\w-]): the old `omo` must not match the start of omo-opus or omo-astra and take the rest as a reason.
+    r"\bRunner:[ \t]*(dsh|grok-cursor|agy|omo-opus|omo-astra|omo)(?![\w-])[ \t]*(?:—|–|--?|:)[ \t]*(\S[^\n]*)",
     re.IGNORECASE,
 )
 HEADING_RE = re.compile(r"^#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$", re.MULTILINE)
@@ -86,6 +98,12 @@ NEGATION_WORDS = 4
 CLAUSE_BREAK_RE = re.compile(r"\b(?:but|however|yet|although|though)\b", re.IGNORECASE)
 OPEN_DESIGN_RE = re.compile(
     r"\b(tbd|open questions?|undecided|to be decided|decision needed)\b|미정|결정 필요",
+    re.IGNORECASE,
+)
+MIGRATION_RE = re.compile(r"\bmigrat\w*|\bmov(?:e|es|ing)\b.+\binto\b|옮기", re.IGNORECASE)
+REPRO_RE = re.compile(
+    r"\b(?:flaky|flakiness|intermittent\w*|reproduc\w*|repro)\b|"
+    r"\bfail(?:s|ed|ing)?\s+(?:in\s+)?\d+\s+(?:of|out of)\s+\d+|재현|간헐",
     re.IGNORECASE,
 )
 SENTENCE_RE = re.compile(r"[^.;!?\n]+")
@@ -125,7 +143,8 @@ def parse_runner(body):
     match = RUNNER_RE.search(body or "")
     if not match:
         return None
-    return match.group(1).lower(), match.group(2).strip()
+    runner = match.group(1).lower()
+    return LEGACY_RUNNERS.get(runner, runner), match.group(2).strip()
 
 
 def section(body, name):
@@ -188,25 +207,41 @@ def judge(title, body, labels=()):
     override = parse_runner(body)
     if override:
         return Judgment(size, override[0], f"Runner line: {override[1]}")
+    opus, astra = "omo-opus", "omo-astra"
     if kind in ("research", "qa"):
-        return Judgment(size, "omo", f"{kind} work")
+        return Judgment(size, opus, f"{kind} work")
     measured = mentions(MEASURE_RE, f"{title}\n{body}")
     if measured:
-        return Judgment(size, "omo", f"device, real data or measurement ({measured})")
-    if size == "L":
-        return Judgment(size, "omo", f"size L: {size_reason}")
-    risky = sorted(scopes & RISKY_SCOPES)
-    if risky:
-        return Judgment(size, "omo", f"risky scope ({', '.join(risky)})")
-    sensitive = mentions(SENSITIVE_RE, body)
-    if sensitive:
-        return Judgment(size, "omo", f"security, credentials or personal data ({sensitive})")
+        return Judgment(size, opus, f"device, real data or measurement ({measured})")
+    if kind == "docs" and size == "L":
+        return Judgment(size, opus, "documentation only, size L")
+    if len(scopes) >= MANY_SCOPES:
+        return Judgment(size, opus, f"{len(scopes)} areas ({', '.join(sorted(scopes))})")
     if not has_done_when(body):
-        return Judgment(size, "omo", "no checkable Done when")
+        return Judgment(size, opus, "no checkable Done when")
     design = sorted(scopes & DESIGN_SCOPES)
     open_design = mentions(OPEN_DESIGN_RE, body)
     if design or open_design:
-        return Judgment(size, "omo", f"design decision open ({', '.join(design) or open_design})")
+        return Judgment(size, opus, f"design decision open ({', '.join(design) or open_design})")
+    risky = sorted(scopes & OPUS_SCOPES)
+    if risky:
+        return Judgment(size, opus, f"risky scope ({', '.join(risky)})")
+    risky = sorted(scopes & ASTRA_SCOPES)
+    if risky:
+        return Judgment(size, astra, f"risky scope with a testable contract ({', '.join(risky)})")
+    migration = MIGRATION_RE.search(title or "")
+    if migration:
+        return Judgment(size, astra, f"migration ({migration.group(0)})")
+    repro = mentions(REPRO_RE, f"{title}\n{body}") if kind == "fix" else None
+    if repro:
+        return Judgment(size, astra, f"fix with a reproduction ({repro})")
+    if kind in ("fix", "perf") and size in ("M", "L") and len(scopes) <= 1:
+        return Judgment(size, astra, f"{kind} at size {size} in one area")
+    sensitive = mentions(SENSITIVE_RE, body)
+    if sensitive:
+        return Judgment(size, opus, f"security, credentials or personal data ({sensitive})")
+    if size == "L":
+        return Judgment(size, opus, f"size L: {size_reason}")
     if kind == "docs":
         return Judgment(size, "agy", "documentation only")
     if size == "S":
@@ -232,8 +267,9 @@ def plan_issue(issue):
     kind = KIND_BY_TYPE.get(parse_title(issue.get("title"))[0] or "")
     if kind and not labels & KINDS:
         plan.add.add(kind)
+    runner_labels = set(RUNNERS) | set(LEGACY_RUNNERS)
     if is_parent_or_roadmap(issue):
-        plan.remove |= labels & (set(RUNNERS) | {NEEDS_ROUTING})
+        plan.remove |= labels & (runner_labels | {NEEDS_ROUTING})
         return finish(plan, labels)
 
     judgment = judge(issue.get("title"), issue.get("body"), labels)
@@ -243,8 +279,8 @@ def plan_issue(issue):
         plan.remove |= labels & (set(SIZE_LABELS.values()) - {SIZE_LABELS[judgment.size]})
     want = {judgment.runner} if judgment.runner else {NEEDS_ROUTING}
     plan.add |= want
-    plan.remove |= labels & ((set(RUNNERS) | {NEEDS_ROUTING}) - want)
-    current = sorted(labels & set(RUNNERS))
+    plan.remove |= labels & ((runner_labels | {NEEDS_ROUTING}) - want)
+    current = sorted(labels & runner_labels)
     if current and set(current) != (want & set(RUNNERS)):
         plan.old_runners = current
     return finish(plan, labels)
@@ -264,7 +300,7 @@ def comment_body(old_runners, judgment):
         head = f"Runner label removed (was {old}): the routing rules could not decide, so this issue is `{NEEDS_ROUTING}`."
     return (
         f"{MARKER}\n{head}\nReason: {judgment.reason}.\n\n"
-        "To choose another runner, write `Runner: <dsh|grok-cursor|agy|omo> — <reason>` in Context; "
+        "To choose another runner, write `Runner: <dsh|grok-cursor|agy|omo-opus|omo-astra> — <reason>` in Context; "
         "a label changed by hand is put back on the next run. "
         "Rules: https://github.com/lina-system/.github/blob/main/scripts/issue_labels.py"
     )

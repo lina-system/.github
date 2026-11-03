@@ -31,9 +31,15 @@
 - name: agy
   color: fbca04
   description: "Runner: Antigravity - documentation only, no design decision"
+- name: omo-opus
+  color: 8a63d2
+  description: "Runner: omo on Opus 5.5 medium (default) - research, planning, design, docs at L, many areas"
+- name: omo-astra
+  color: 0052cc
+  description: "Runner: omo on GPT-6 astra high - one narrow hard task a test checks: store, migration, hard fix"
 - name: omo
   color: 5319e7
-  description: "Runner: omo - size L, risky area, research, device, real data, measurement or open design"
+  description: "Old runner label, replaced by omo-opus or omo-astra; the rules no longer add it"
 - name: needs-routing
   color: e99695
   description: "No runner yet: lina-next writes the Size and Runner lines, then the workflow labels it"
