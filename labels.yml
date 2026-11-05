@@ -55,6 +55,11 @@
   color: f9d0c4
   description: "Size: larger, several areas, or a new subsystem or scaffold"
 
+# Priority. The owner names the track that goes before other new work; the label leaves the issues when it closes.
+- name: priority/1
+  color: ee0701
+  description: "Priority 1: the owner's current first track; other new work waits until it closes"
+
 # Used by POLICY.md section 4: one open issue per area and sprint.
 - name: follow-up
   color: c5def5
